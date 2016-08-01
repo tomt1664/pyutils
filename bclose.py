@@ -45,6 +45,7 @@
 import sys
 import math 
 import argparse
+import numpy as np
 
 # function determine distance between two coordinates
 def dist(coords1,coords2):
@@ -55,8 +56,14 @@ def dist(coords1,coords2):
     return bdist
 
 res = 0.1
-rmax = 10.0
-icdim = 16
+rmax = 5.0
+icdim = 40
+
+xper = 0.0
+yper = 0.0
+zper = 0.0
+
+rclose = 0.0
 
 # Parse command line input
 parser = argparse.ArgumentParser()
@@ -128,70 +135,79 @@ for i in range(nat):
 print "Read in "+str(nat)+" atoms"
 
 #get system dimensions
-if xper:
+if xper > 0.0:
     print "PBC in x direction"
     xln = xper
 else:
     print "Min x: "+str(xmin)+" Max x: "+str(xmax)
     xln = xmax - xmin
 
-if yper:
+if yper > 0.0:
     print "PBC in y direction"
     yln = yper
 else:
     print "Min y: "+str(ymin)+" Max y: "+str(ymax)
     yln = ymax - ymin
 
-if zper:
+if zper > 0.0:
     print "PBC in z direction"
     zln = zper
 else:
     print "Min z: "+str(zmin)+" Max z: "+str(zmax)
     zln = zmax - zmin
 
-icell = []
-jcell = []
-kcell = []
+# link cell maximum (twice average density)
+topcell = 2*int(nat/(pow(icdim,3)))
+
 # create link cell lists
-for k in range(icdim):
-    kcell.append(0)
+icell = np.zeros((icdim,icdim,icdim,topcell),np.int64)
 
-for j in range(icdim):
-    jcell.append(kcell)
-
-for i in range(icdim):
-    icell.append(jcell)
+# number cell list
+ncell = np.zeros((icdim,icdim,icdim),np.int32)
 
 xdiv = xln/(icdim*1.0)
-ydiv = xln/(icdim*1.0)
-zdiv = xln/(icdim*1.0)
+ydiv = yln/(icdim*1.0)
+zdiv = zln/(icdim*1.0)
 
 if xdiv < rmax or ydiv < rmax or zdiv < rmax:
     print "Error: RDF max greater than link cell size"
     print "Either decrease RDF max or cell divisor"
     sys.exit(1)
 
+itick = 0
+maxcell = 0
 for i in xrange(len(coords)):
-    icx = int(coords[i][0]/xdiv)
-    icy = int(coords[i][1]/ydiv)
-    icz = int(coords[i][2]/zdiv)
-    if icx > icdim:
-        icx = icdim
-    if icy > icdim:
-        icy = icdim
-    if icz > icdim:
-        icz = icdim
-    if icx < 1:
-        icx = 1
-    if icy < 1:
-        icy = 1
-    if icz < 1:
-        icz = 1
+    icx = int((coords[i][0]-xmin)/xdiv)
+    icy = int((coords[i][1]-ymin)/ydiv)
+    icz = int((coords[i][2]-zmin)/zdiv)
 
-    icell[icx-1][icy-1][icz-1].append(i)
+    if icx == icdim:
+        icx = icdim-1
+    if icy == icdim:
+        icy = icdim-1
+    if icz == icdim:
+        icz = icdim-1
+#    if icx < 1:
+#        icx = 1
+#    if icy < 1:
+#        icy = 1
+#    if icz < 1:
+#        icz = 1
+
+#    print str(icx)+" "+str(icy)+" "+str(icz)+" "+str(ncell[icx][icy][icz])
+
+    icell[icx][icy][icz][ncell[icx][icy][icz]] = i
+
+    ncell[icx][icy][icz] += 1
+
+    if ncell[icx][icy][icz] > maxcell:
+        maxcell = ncell[icx][icy][icz]
 
 # removal list
 rlist = []
+
+print "icell 0 0 0 : "+str(ncell[0][0][0])
+print "Max cell: "+str(maxcell)
 
 tcrd = []
 for i in range(3):
@@ -201,18 +217,20 @@ for i in range(3):
 for i in range(icdim):
     for j in range(icdim):
         for k in range(icdim):
+#            print str(i)+" "+str(j)+" "+str(k)
+#            print str(ncell[i][j][k])
 #           double loop over all atoms in the cell
-            for n in range(len(icell[i][j][k])):
+            for n in range(ncell[i][j][k]):
                 iatm1 = icell[i][j][k][n]
-                for m in range(len(icell[i][j][k])):
+                for m in range(ncell[i][j][k]):
                     if m != n:
                         iatm2 = icell[i][j][k][m]
                         bdst = dist(coords[iatm1],coords[iatm2])
                         # add to remove list if too close to neighbour
-                        if rclose:
+                        if rclose > 0.0:
                             if bdst < rclose:
                                 rlist.append(iatm2)
-                        # add neoighbour distance to RDF histogram
+                        # add neighbour distance to RDF histogram
                         for p in xrange(nbins):
                             if bdst > p*res and bdst < (p+1)*res:
                                 rdf[p] += 1
@@ -231,42 +249,42 @@ for i in range(icdim):
                             kper = k + kcp
                             if iper == -1:
                                 if xper:
-                                    iper = icdim
+                                    iper = icdim-1
                                     xaddp = -xln
                                 else:
                                     break
                             if jper == -1:
                                 if yper:
-                                    jper = icdim
+                                    jper = icdim-1
                                     yaddp = -yln
                                 else:
                                     break
                             if kper == -1:
                                 if zper:
-                                    kper = icdim
+                                    kper = icdim-1
                                     zaddp = -zln
                                 else:
                                     break
-                            if iper = icdim:
+                            if iper == icdim:
                                 if xper:
                                     iper = 0
                                     xaddp = xln
                                 else:
                                     break
-                            if jper = icdim:
+                            if jper == icdim:
                                 if yper:
                                     jper = 0
                                     yaddp = yln
                                 else:
                                     break
-                            if kper = icdim:
+                            if kper == icdim:
                                 if zper:
                                     kper = 0
                                     zaddp = zln
                                 else:
                                     break
 #         loop over atoms in cell
-                            for m in range(icell[iper][jper][kper]):
+                            for m in range(ncell[iper][jper][kper]):
                                 iatm2 = icell[iper][jper][kper][m]
                                 tcrd[0] = coords[iatm2][0] + xaddp
                                 tcrd[1] = coords[iatm2][1] + yaddp
